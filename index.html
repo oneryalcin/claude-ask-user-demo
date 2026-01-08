@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Chat + AskUserQuestion</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; height: 100vh; display: flex; flex-direction: column; }
+
+    /* Container for centered content */
+    .container { max-width: 800px; margin: 0 auto; width: 100%; }
+
+    /* Chat area */
+    #chat { flex: 1; overflow-y: auto; padding: 20px; }
+    #chat .container { display: flex; flex-direction: column; }
+    .message { margin-bottom: 16px; padding: 12px 16px; border-radius: 8px; max-width: 85%; line-height: 1.5; }
+    .user { background: #0f3460; margin-left: auto; }
+    .assistant { background: #16213e; }
+    .assistant p { margin-bottom: 0.8em; }
+    .assistant p:last-child { margin-bottom: 0; }
+    .assistant ul, .assistant ol { margin: 0.5em 0 0.5em 1.5em; }
+    .assistant li { margin-bottom: 0.3em; }
+    .assistant strong { color: #7dd3fc; }
+    .assistant code { background: #0f172a; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+    .assistant pre { background: #0f172a; padding: 12px; border-radius: 6px; overflow-x: auto; margin: 0.5em 0; }
+    .assistant pre code { background: none; padding: 0; }
+    .assistant h1, .assistant h2, .assistant h3 { margin: 0.8em 0 0.4em; color: #7dd3fc; }
+    .system { background: #1a1a2e; border: 1px solid #444; font-size: 0.9em; color: #888; }
+
+    /* Input area */
+    #input-area { padding: 16px; background: #16213e; }
+    #input-area .container { display: flex; gap: 10px; }
+    #input { flex: 1; padding: 12px; border: none; border-radius: 6px; background: #1a1a2e; color: #eee; font-size: 16px; }
+    #send { padding: 12px 24px; background: #e94560; border: none; border-radius: 6px; color: white; cursor: pointer; font-weight: bold; }
+    #send:hover { background: #ff6b6b; }
+    #send:disabled { background: #666; cursor: not-allowed; }
+
+    /* Modal overlay */
+    #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; }
+    #modal.active { display: flex; }
+
+    /* Questionnaire */
+    #questionnaire { background: #16213e; border-radius: 12px; width: 90%; max-width: 600px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; }
+
+    /* Tabs */
+    #tabs { display: flex; background: #1a1a2e; border-bottom: 2px solid #0f3460; overflow-x: auto; }
+    .tab { padding: 12px 20px; cursor: pointer; border: none; background: none; color: #888; font-size: 14px; white-space: nowrap; }
+    .tab.active { color: #e94560; border-bottom: 2px solid #e94560; margin-bottom: -2px; }
+    .tab.answered { color: #4ade80; }
+    .tab.answered::before { content: "✓ "; }
+
+    /* Question content */
+    #question-content { padding: 20px; flex: 1; overflow-y: auto; }
+    #question-text { font-size: 18px; font-weight: bold; margin-bottom: 20px; }
+
+    /* Options */
+    .option { display: block; padding: 12px 16px; margin-bottom: 8px; background: #1a1a2e; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; }
+    .option:hover { border-color: #0f3460; }
+    .option.selected { border-color: #e94560; background: #0f3460; }
+    .option-label { font-weight: 500; }
+    .option-desc { font-size: 0.85em; color: #888; margin-top: 4px; }
+
+    /* Multi-select checkbox style */
+    .option input[type="checkbox"] { margin-right: 10px; }
+
+    /* Actions */
+    #actions { padding: 16px 20px; background: #1a1a2e; display: flex; gap: 10px; justify-content: flex-end; }
+    #submit-answers { padding: 12px 24px; background: #4ade80; border: none; border-radius: 6px; color: #000; cursor: pointer; font-weight: bold; }
+    #submit-answers:disabled { background: #666; color: #999; cursor: not-allowed; }
+    #cancel-answers { padding: 12px 24px; background: transparent; border: 1px solid #666; border-radius: 6px; color: #888; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="chat">
+    <div class="container" id="chat-container"></div>
+  </div>
+
+  <div id="input-area">
+    <div class="container">
+      <input type="text" id="input" placeholder="Type your message..." autofocus>
+      <button id="send">Send</button>
+    </div>
+  </div>
+
+  <!-- Questionnaire Modal -->
+  <div id="modal">
+    <div id="questionnaire">
+      <div id="tabs"></div>
+      <div id="question-content">
+        <div id="question-text"></div>
+        <div id="options"></div>
+      </div>
+      <div id="actions">
+        <button id="cancel-answers">Cancel</button>
+        <button id="submit-answers">Submit</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const chatContainer = document.getElementById('chat-container');
+    const chatScroll = document.getElementById('chat');
+    const input = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+    const modal = document.getElementById('modal');
+    const tabs = document.getElementById('tabs');
+    const questionText = document.getElementById('question-text');
+    const optionsDiv = document.getElementById('options');
+    const submitBtn = document.getElementById('submit-answers');
+    const cancelBtn = document.getElementById('cancel-answers');
+
+    let sessionId = null;
+    let currentQuestionId = null;
+    let questions = [];
+    let answers = {};
+    let currentTab = 0;
+
+    // Add message to chat
+    function addMessage(content, type) {
+      const div = document.createElement('div');
+      div.className = `message ${type}`;
+
+      if (type === 'assistant') {
+        // Render markdown for assistant messages
+        div.innerHTML = marked.parse(content);
+      } else {
+        div.textContent = content;
+      }
+
+      chatContainer.appendChild(div);
+      chatScroll.scrollTop = chatScroll.scrollHeight;
+    }
+
+    // Send message
+    async function sendMessage() {
+      const message = input.value.trim();
+      if (!message) return;
+
+      addMessage(message, 'user');
+      input.value = '';
+      sendBtn.disabled = true;
+
+      sessionId = sessionId || crypto.randomUUID();
+
+      // Start chat
+      await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, session_id: sessionId })
+      });
+
+      // Listen to SSE stream
+      const eventSource = new EventSource(`/stream/${sessionId}`);
+
+      eventSource.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+
+        switch (data.type) {
+          case 'assistant':
+            addMessage(data.content, 'assistant');
+            break;
+
+          case 'tool_call':
+            addMessage(`[Using tool: ${data.name}]`, 'system');
+            break;
+
+          case 'questions':
+            showQuestionnaire(data.question_id, data.questions);
+            break;
+
+          case 'done':
+            addMessage(`[Done - Cost: $${data.cost.toFixed(4)}]`, 'system');
+            eventSource.close();
+            sendBtn.disabled = false;
+            break;
+
+          case 'error':
+            addMessage(`Error: ${data.message}`, 'system');
+            eventSource.close();
+            sendBtn.disabled = false;
+            break;
+        }
+      };
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        sendBtn.disabled = false;
+      };
+    }
+
+    // Show questionnaire modal
+    function showQuestionnaire(questionId, qs) {
+      currentQuestionId = questionId;
+      questions = qs;
+      answers = {};
+      currentTab = 0;
+
+      renderTabs();
+      renderQuestion(0);
+      modal.classList.add('active');
+    }
+
+    // Render tabs
+    function renderTabs() {
+      tabs.innerHTML = questions.map((q, i) =>
+        `<button class="tab ${i === currentTab ? 'active' : ''} ${answers[q.header] ? 'answered' : ''}"
+                 data-index="${i}">${q.header}</button>`
+      ).join('') + `<button class="tab ${currentTab === questions.length ? 'active' : ''}"
+                           data-index="${questions.length}">Review</button>`;
+
+      tabs.querySelectorAll('.tab').forEach(tab => {
+        tab.onclick = () => {
+          currentTab = parseInt(tab.dataset.index);
+          renderTabs();
+          if (currentTab < questions.length) {
+            renderQuestion(currentTab);
+          } else {
+            renderReview();
+          }
+        };
+      });
+    }
+
+    // Render single question
+    function renderQuestion(index) {
+      const q = questions[index];
+      questionText.textContent = q.question;
+
+      const isMulti = q.multiSelect;
+      const currentAnswer = answers[q.header] || (isMulti ? [] : null);
+
+      optionsDiv.innerHTML = q.options.map((opt, i) => {
+        const selected = isMulti
+          ? currentAnswer.includes(opt.label)
+          : currentAnswer === opt.label;
+
+        return `
+          <div class="option ${selected ? 'selected' : ''}" data-label="${opt.label}" data-multi="${isMulti}">
+            ${isMulti ? `<input type="checkbox" ${selected ? 'checked' : ''}>` : ''}
+            <span class="option-label">${opt.label}</span>
+            <div class="option-desc">${opt.description}</div>
+          </div>
+        `;
+      }).join('');
+
+      optionsDiv.querySelectorAll('.option').forEach(opt => {
+        opt.onclick = () => selectOption(q.header, opt.dataset.label, opt.dataset.multi === 'true');
+      });
+
+      submitBtn.textContent = index < questions.length - 1 ? 'Next →' : 'Review';
+    }
+
+    // Render review screen
+    function renderReview() {
+      questionText.textContent = 'Review your answers';
+
+      const allAnswered = questions.every(q => answers[q.header]);
+
+      optionsDiv.innerHTML = questions.map(q => {
+        const ans = answers[q.header];
+        const ansText = Array.isArray(ans) ? ans.join(', ') : (ans || '(not answered)');
+        return `
+          <div class="option" style="cursor: default; border-color: ${ans ? '#4ade80' : '#e94560'}">
+            <span class="option-label">${q.header}</span>
+            <div class="option-desc" style="color: ${ans ? '#4ade80' : '#e94560'}">${ansText}</div>
+          </div>
+        `;
+      }).join('');
+
+      submitBtn.textContent = 'Submit Answers';
+      submitBtn.disabled = !allAnswered;
+    }
+
+    // Select option
+    function selectOption(header, label, isMulti) {
+      if (isMulti) {
+        if (!answers[header]) answers[header] = [];
+        const idx = answers[header].indexOf(label);
+        if (idx >= 0) {
+          answers[header].splice(idx, 1);
+        } else {
+          answers[header].push(label);
+        }
+      } else {
+        answers[header] = label;
+      }
+
+      renderTabs();
+      if (currentTab < questions.length) {
+        renderQuestion(currentTab);
+      } else {
+        renderReview();
+      }
+    }
+
+    // Submit button handler
+    submitBtn.onclick = async () => {
+      if (currentTab < questions.length - 1) {
+        // Next question
+        currentTab++;
+        renderTabs();
+        renderQuestion(currentTab);
+      } else if (currentTab === questions.length - 1) {
+        // Go to review
+        currentTab = questions.length;
+        renderTabs();
+        renderReview();
+      } else {
+        // Submit answers
+        await fetch('/answers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question_id: currentQuestionId, answers })
+        });
+        modal.classList.remove('active');
+        addMessage('[Questionnaire submitted]', 'system');
+      }
+    };
+
+    // Cancel button
+    cancelBtn.onclick = () => {
+      modal.classList.remove('active');
+      // Could send empty answers or handle differently
+    };
+
+    // Event listeners
+    sendBtn.onclick = sendMessage;
+    input.onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };
+  </script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+[project]
+name = "ask-user-mcp-demo"
+version = "0.1.0"
+description = "Interactive AskUserQuestion implementation via MCP for Claude Agent SDK"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Your Name", email = "you@example.com" }
+]
+keywords = ["claude", "anthropic", "mcp", "agent", "sdk"]
+
+dependencies = [
+    "claude-agent-sdk",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+]
+
+[project.optional-dependencies]
+tui = ["textual>=0.40.0"]
+dev = ["ruff", "mypy"]
+
+[project.scripts]
+ask-user-demo = "server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
