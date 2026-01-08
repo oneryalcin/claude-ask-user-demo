@@ -2,6 +2,8 @@
 
 A proof-of-concept showing how to implement interactive user prompts when Claude Code runs as a non-interactive subprocess.
 
+![Questionnaire Modal](assets/questionnaire-modal.png)
+
 ## The Problem
 
 Claude Code's built-in `AskUserQuestion` tool doesn't work in non-interactive mode (SDK, CI/CD, subprocess). When you build apps using the Claude Agent SDK, Claude can't ask users for input mid-conversation.
@@ -55,6 +57,17 @@ Key pattern: `asyncio.Event` blocks the MCP tool handler until answers arrive vi
 - Markdown rendering in chat
 - Conversation history persistence
 - SSE streaming (no WebSocket needed)
+
+<details>
+<summary>More Screenshots</summary>
+
+### Review Screen
+![Review Screen](assets/review-screen.png)
+
+### Final Response with Markdown
+![Final Response](assets/final-response.png)
+
+</details>
 
 ## Quick Start
 
